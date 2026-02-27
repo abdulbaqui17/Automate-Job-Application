@@ -1,0 +1,8 @@
+{
+  "prisma.schemaPath": ["prisma/schema.prisma"],
+  "prisma.fileWatcher": true,
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma",
+    "editor.formatOnSave": true
+  }
+}

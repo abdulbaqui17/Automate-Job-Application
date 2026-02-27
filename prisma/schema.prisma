@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Platform {
+  LINKEDIN
+  INDEED
+  GLASSDOOR
+  REMOTIVE
+  ARBEITNOW
+  OTHER
+}
+
+enum ApplicationStatus {
+  QUEUED
+  PROCESSING
+  APPLIED
+  FAILED
+  MANUAL_INTERVENTION
+}
+
+enum ResumeSource {
+  UPLOAD
+  GENERATED
+  IMPORTED
+}
+
+enum ImportSource {
+  MANUAL
+  EXTENSION
+  DISCOVERY
+}
+
+enum ImportStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ImportItemStatus {
+  QUEUED
+  CREATED
+  DUPLICATE
+  FAILED
+}
+
+enum NotificationChannel {
+  EMAIL
+  WEB
+}
+
+enum NotificationType {
+  STATUS_UPDATE
+  ERROR
+  COMPLETED
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum EventType {
+  JOB_STARTED
+  STEP_COMPLETED
+  ERROR_OCCURRED
+  JOB_FINISHED
+}
+
+enum AiProvider {
+  AUTO
+  OPENAI
+  GEMINI
+}
+
+model User {
+  id             String             @id @default(uuid()) @db.Uuid
+  email          String             @unique
+  fullName       String?
+  aiProvider     AiProvider         @default(AUTO)
+  createdAt      DateTime           @default(now())
+  profiles       MasterProfile[]
+  jobs           Job[]
+  apps           Application[]
+  resumes        Resume[]
+  coverLetters   CoverLetter[]
+  imports        JobImportBatch[]
+  preferences    SearchPreference[]
+  notifications  Notification[]
+  jobMatches     JobMatch[]
+  interviewPreps InterviewPrep[]
+}
+
+model MasterProfile {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Job {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  externalId      String?   @unique
+  platform        Platform
+  jobUrl          String
+  applyUrl        String?
+  title           String?
+  company         String?
+  location        String?
+  employmentType  String?
+  experienceLevel String?
+  salaryText      String?
+  rawDescription  String?   @db.Text
+  postedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications   Application[]
+  matches        JobMatch[]
+  importItems    JobImportItem[]
+  interviewPreps InterviewPrep[]
+}
+
+model Application {
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String            @db.Uuid
+  jobId             String            @db.Uuid
+  status            ApplicationStatus @default(QUEUED)
+  resumeSnapshotUrl String?
+  logs              Json?
+  error             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job            Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  events         ApplicationEvent[]
+  coverLetter    CoverLetter?
+  notifications  Notification[]
+  interviewPreps InterviewPrep[]
+}
+
+model Resume {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @db.Uuid
+  label       String?
+  source      ResumeSource
+  storageUrl  String?
+  textContent String?      @db.Text
+  parsedData  Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CoverLetter {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  applicationId String?  @unique @db.Uuid
+  content       String   @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+}
+
+model ApplicationEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  applicationId String    @db.Uuid
+  type          EventType
+  message       String
+  meta          Json?
+  createdAt     DateTime  @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+model JobImportBatch {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  source    ImportSource
+  status    ImportStatus @default(QUEUED)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items JobImportItem[]
+}
+
+model JobImportItem {
+  id        String           @id @default(uuid()) @db.Uuid
+  batchId   String           @db.Uuid
+  jobUrl    String
+  platform  Platform?
+  status    ImportItemStatus @default(QUEUED)
+  jobId     String?          @db.Uuid
+  error     String?
+  createdAt DateTime         @default(now())
+
+  batch JobImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  job   Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+}
+
+model Notification {
+  id            String              @id @default(uuid()) @db.Uuid
+  userId        String              @db.Uuid
+  applicationId String?             @db.Uuid
+  channel       NotificationChannel
+  type          NotificationType
+  status        NotificationStatus  @default(PENDING)
+  payload       Json?
+  createdAt     DateTime            @default(now())
+  sentAt        DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+}
+
+model SearchPreference {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  keywords       String[]  @default([])
+  locations      String[]  @default([])
+  roles          String[]  @default([])
+  remote         Boolean   @default(false)
+  salaryMin      Int?
+  salaryMax      Int?
+  autoApply      Boolean   @default(true)
+  scoreThreshold Float     @default(0.25)
+  lastRunAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model JobMatch {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  jobId     String   @db.Uuid
+  score     Float
+  rationale Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model InterviewPrep {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  applicationId String?  @db.Uuid
+  jobId         String?  @db.Uuid
+  content       String   @db.Text
+  createdAt     DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  job         Job?         @relation(fields: [jobId], references: [id], onDelete: SetNull)
+}

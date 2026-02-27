@@ -1,0 +1,228 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Worker (Local)",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker start",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "none"
+		},
+		{
+			"label": "Trigger Automation",
+			"type": "shell",
+			"command": "bash /Users/abdul/projects/week4/trigger.sh"
+		},
+		{
+			"label": "Trigger Automation",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker Local",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && pkill -f 'Chrome for Testing' 2>/dev/null; pkill -f 'bun.*src/index' 2>/dev/null; sleep 1; find artifacts/sessions -name SingletonLock -delete 2>/dev/null; HEADLESS=false exec bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && find artifacts/sessions -name SingletonLock -delete 2>/dev/null; HEADLESS=false exec bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && rm -f \"$HOME/Library/Application Support/Google/Chrome/SingletonLock\" && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'"
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Trigger",
+			"type": "shell",
+			"command": "redis-cli PUBLISH automation:start '{\"userId\":\"15f064a5-26f8-4e19-b9b6-68d977a336ef\"}'",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && HEADLESS=false bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker MERN",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && pkill -f 'Chrome for Testing' 2>/dev/null; pkill -f 'bun.*src/index' 2>/dev/null; sleep 1; find artifacts/sessions -name SingletonLock -delete 2>/dev/null; HEADLESS=false exec bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker Apply",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker Apply v2",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker Apply v3",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Worker Fresh",
+			"type": "shell",
+			"command": "cd /Users/abdul/projects/week4 && bun --cwd apps/worker src/index.ts",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

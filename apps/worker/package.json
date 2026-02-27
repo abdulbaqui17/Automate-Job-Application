@@ -1,0 +1,25 @@
+{
+  "name": "@app/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@app/shared": "workspace:*",
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "^7.3.0",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.5.0",
+    "nodemailer": "^6.9.14",
+    "openai": "^4.0.0",
+    "playwright": "^1.49.1"
+  },
+  "devDependencies": {
+    "prisma": "^7.3.0",
+    "typescript": "^5.6.3"
+  }
+}

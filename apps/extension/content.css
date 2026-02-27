@@ -1,0 +1,55 @@
+.applycraft-overlay {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 999999;
+  background: rgba(15, 23, 42, 0.96);
+  color: #e2e8f0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.4);
+  width: 220px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.applycraft-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 6px;
+}
+
+.applycraft-status {
+  font-size: 0.78rem;
+  color: #cbd5f5;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+.applycraft-button {
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: linear-gradient(120deg, #14b8a6, #0f766e);
+  color: #0b0f14;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 6px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.applycraft-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(20, 184, 166, 0.35);
+}
+
+.applycraft-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.applycraft-hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
