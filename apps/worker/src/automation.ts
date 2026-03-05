@@ -16,6 +16,7 @@ import {
   generateHRMessage,
 } from "./ai";
 import { sendStatusNotification } from "./notifications";
+import { runDiscoveryNow } from "./discovery";
 
 type SearchPreference = NonNullable<
   Awaited<ReturnType<typeof prisma.searchPreference.findFirst>>
@@ -44,7 +45,7 @@ const autoSubmit = process.env.AUTO_SUBMIT !== "false";
 const manualHoldMs = Number(process.env.MANUAL_HOLD_MS ?? 10 * 60 * 1000);
 const loginWaitMs = Number(process.env.LOGIN_WAIT_MS ?? 5 * 60 * 1000);
 const aiScoringEnabled = process.env.AI_SCORING !== "false";
-const coverLetterEnabled = process.env.COVER_LETTER_ENABLED !== "false";
+const coverLetterEnabled = process.env.COVER_LETTER_ENABLED === "true"; // Disabled by default — user removed cover letter feature
 const resumeTailorEnabled = process.env.RESUME_TAILOR_ENABLED !== "false";
 const resumeTailorLimit = Number(process.env.RESUME_TAILOR_LIMIT ?? 10);
 const aiScoreLimit = Number(process.env.AI_SCORE_LIMIT ?? 10);
@@ -117,7 +118,7 @@ const buildQuery = (pref: SearchPreference) => {
   const role = pref.roles[0]?.trim();
   if (role) return role;
   // Fallback: pick first 2 keywords
-  return pref.keywords.slice(0, 2).map((t) => t.trim()).filter(Boolean).join(" ");
+  return pref.keywords.slice(0, 2).map((t:any) => t.trim()).filter(Boolean).join(" ");
 };
 
 /** Build multiple search queries from all roles to cast a wider net */
@@ -130,14 +131,23 @@ const buildMultipleQueries = (pref: SearchPreference): string[] => {
   }
   // Fallback if no roles
   if (queries.length === 0) {
-    const kw = pref.keywords.slice(0, 2).map((t) => t.trim()).filter(Boolean).join(" ");
+    const kw = pref.keywords.slice(0, 2).map((t:any) => t.trim()).filter(Boolean).join(" ");
     if (kw) queries.push(kw);
   }
   return queries;
 };
 
+const scoringTermsFromPreference = (pref: SearchPreference, limit = 10) =>
+  Array.from(
+    new Set(
+      [...pref.roles, ...pref.keywords]
+        .map((term) => term.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ).slice(0, limit);
+
 const scoreJob = (job: { title?: string | null; company?: string | null; location?: string | null }, pref: SearchPreference) => {
-  const terms = [...pref.roles, ...pref.keywords].map((t) => t.toLowerCase());
+  const terms = scoringTermsFromPreference(pref);
   if (!terms.length) return 0.5;
   const haystack = `${job.title ?? ""} ${job.company ?? ""} ${job.location ?? ""}`.toLowerCase();
   const matches = terms.filter((term) => haystack.includes(term)).length;
@@ -145,11 +155,11 @@ const scoreJob = (job: { title?: string | null; company?: string | null; locatio
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Strict MERN Stack Job Validation (JSON Scoring)
+// User-Preference-Based Job Validation
 // ────────────────────────────────────────────────────────────────────────────
 
-/** Mandatory scoring output — every job gets this evaluation */
-type MERNScoreResult = {
+/** Scoring output — every job gets this evaluation */
+type JobScoreResult = {
   match_score: number; // 0-100
   is_match: boolean;
   reasons: string[];
@@ -157,66 +167,11 @@ type MERNScoreResult = {
   confidence: "low" | "medium" | "high";
 };
 
-/*
- * Title must contain one of these stems.
- * Compound titles like "Full Stack Web Developer" or "Senior React.js Developer" still match.
- */
-const MERN_TITLE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\bmern\b/i, label: "MERN" },
-  { pattern: /\bfull[\s-]?stack(\s+\w+)?\s*(developer|engineer|dev)\b/i, label: "Full Stack Developer" },
-  { pattern: /\breact(\.?js)?\s*(developer|engineer|dev)\b/i, label: "React Developer" },
-  { pattern: /\bnode(\.?js)?\s*(developer|engineer|dev)\b/i, label: "Node.js Developer" },
-  { pattern: /\bnodejs\s*(developer|engineer|dev)\b/i, label: "Node.js Developer" },
-];
-
-/** Technologies that IMMEDIATELY disqualify a job (Rule 4) */
-const EXCLUDED_TECH = [
-  // Java / Spring Boot
-  "java developer", "java engineer", "java backend", "spring boot", "spring framework", "j2ee",
-  // Python-only
-  "python developer", "python engineer", "django", "flask",
-  // .NET
-  ".net developer", ".net engineer", "c# developer", "c#.net", "asp.net",
-  // PHP
-  "php developer", "php engineer", "laravel", "symfony", "wordpress developer",
-  // Salesforce
-  "salesforce", "salesforce developer", "salesforce engineer",
-  // Flutter
-  "flutter developer", "flutter engineer",
-  // Android native
-  "android developer", "android engineer", "kotlin developer",
-  // iOS native
-  "ios developer", "ios engineer", "swift developer",
-  // Competing frontend frameworks
-  "angular developer", "angular engineer", "vue developer", "vue engineer",
-  // React Native (mobile, not web)
-  "react native developer",
-  // Data / ML / DevOps / QA
-  "data scientist", "data analyst", "data engineer",
-  "machine learning", "ml engineer", "ai engineer",
-  "devops engineer", "sre engineer", "cloud engineer",
-  "qa engineer", "test engineer", "sdet",
-  // SAP
-  "sap developer", "sap consultant",
-];
-
-const EXCLUDED_FRONTEND_ONLY = [
-  "frontend developer", "front-end developer", "front end developer",
-  "ui developer", "ui/ux developer", "css developer",
-];
-const EXCLUDED_BACKEND_ONLY = ["backend developer", "back-end developer", "back end developer"];
-
-/** Detect if job requires 6+ years experience (Rule 6: reject senior roles) */
+/** Detect if job requires 6+ years experience (reject senior roles for interns/juniors) */
 const isSeniorRole = (title: string, description?: string | null): boolean => {
   const t = title.toLowerCase();
   const d = (description ?? "").toLowerCase();
-  // Check title for explicit senior indicators
-  if (/\b(staff|principal|lead|architect)\b/i.test(t)) return true;
-  // Check for "senior" in title — but allow "senior" if followed by common MERN titles
-  if (/\bsenior\b/i.test(t)) {
-    // Allow senior MERN/React/Node/Full Stack — but check experience requirement
-  }
-  // Check description for 6+ years requirement
+  if (/\b(staff|principal|architect)\b/i.test(t)) return true;
   const yearsMatch = d.match(/(\d+)\+?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:experience|exp)/i);
   if (yearsMatch) {
     const years = parseInt(yearsMatch[1], 10);
@@ -225,186 +180,123 @@ const isSeniorRole = (title: string, description?: string | null): boolean => {
   return false;
 };
 
-/** Check if job location indicates fully remote + international friendly */
+/** Check if a job mentions remote work */
 const isRemoteJob = (title: string, location?: string | null, description?: string | null): { remote: boolean; reason: string } => {
   const text = `${title} ${location ?? ""} ${description ?? ""}`.toLowerCase();
-  // Positive remote signals
   const remoteSignals = /\b(remote|work from home|wfh|fully remote|anywhere|worldwide|global|distributed)\b/i.test(text);
-  // Negative signals: onsite/hybrid
   const onsiteSignals = /\b(on[\s-]?site|in[\s-]?office|hybrid|office[\s-]?based|must be located|relocation required)\b/i.test(text);
-  if (onsiteSignals) return { remote: false, reason: "Job is onsite or hybrid" };
-  // Location-restricted (specific city without remote mention)
-  if (location) {
-    const loc = location.toLowerCase();
-    const isLocationSpecific = !loc.includes("remote") && !loc.includes("anywhere") && !loc.includes("worldwide");
-    if (isLocationSpecific && !remoteSignals) {
-      return { remote: false, reason: `Location restricted: "${location}"` };
-    }
-  }
+  if (onsiteSignals && !remoteSignals) return { remote: false, reason: "Job is onsite or hybrid" };
   if (remoteSignals) return { remote: true, reason: "Fully remote" };
-  // If no signal either way, assume not confirmed remote
-  return { remote: false, reason: "No remote indication found" };
-};
-
-/** 6 tech buckets — a job must mention at least 2 */
-const descBucketChecks = (d: string) => {
-  const hits: string[] = [];
-  const misses: string[] = [];
-
-  // 1. React
-  if (/\breact([\.\s]?js)?\b/i.test(d)) hits.push("React");
-  else misses.push("React");
-  // 2. Node.js
-  if (/\bnode(\.?js)?\b/i.test(d) || /\bnodejs\b/i.test(d)) hits.push("Node.js");
-  else misses.push("Node.js");
-  // 3. MongoDB
-  if (/\b(mongodb|mongo)\b/i.test(d)) hits.push("MongoDB");
-  else misses.push("MongoDB");
-  // 4. Express
-  if (/\b(express(\.?js)?|expressjs)\b/i.test(d)) hits.push("Express");
-  else misses.push("Express");
-  // 5. REST API
-  if (/\b(rest\s*api|restful|graphql|api\s*development)\b/i.test(d)) hits.push("REST API");
-  else misses.push("REST API");
-  // 6. JavaScript / TypeScript (modern ES6+)
-  if (/\b(javascript|typescript|es6|es2015|ecmascript)\b/i.test(d)) hits.push("JavaScript");
-  else misses.push("JavaScript");
-
-  return { hits, misses };
-};
-
-/** Preference bonus signals (Rule 5) */
-const preferenceSignals = (title: string, description: string) => {
-  const text = (title + " " + description).toLowerCase();
-  const signals: string[] = [];
-  if (/\b(startup|early[\s-]?stage|funded|series\s*[a-c]|seed\s*round)\b/i.test(text)) signals.push("startup");
-  if (/\b(product\s*company|product[\s-]?based|saas|b2b|b2c|platform)\b/i.test(text)) signals.push("product company");
-  if (/\b(international|global|anywhere|worldwide|no visa|any country)\b/i.test(text)) signals.push("international hiring");
-  if (/\b(early[\s-]?stage|small team|founding|first\s*\d+\s*engineer)\b/i.test(text)) signals.push("early-stage team");
-  return signals;
-};
-
-/** Check if job title matches MERN stack roles */
-const isMatchingMERNTitle = (title: string): boolean => {
-  const t = title.toLowerCase().trim();
-  return MERN_TITLE_PATTERNS.some((p) => p.pattern.test(t));
-};
-
-/** Check if job should be excluded */
-const isExcludedJob = (title: string, description: string): { excluded: boolean; reason: string } => {
-  const t = title.toLowerCase();
-  const d = (title + " " + description).toLowerCase();
-
-  for (const tech of EXCLUDED_TECH) {
-    if (t.includes(tech)) return { excluded: true, reason: `Title contains excluded tech: "${tech}"` };
-  }
-
-  // Frontend-only exclusion (but allow if title also says "full stack" or "MERN")
-  if (!t.includes("full") && !t.includes("mern")) {
-    for (const fe of EXCLUDED_FRONTEND_ONLY) {
-      if (t.includes(fe)) return { excluded: true, reason: `Frontend-only role: "${fe}"` };
-    }
-  }
-
-  // Backend-only exclusion (but allow if it mentions Node.js)
-  if (!d.includes("node")) {
-    for (const be of EXCLUDED_BACKEND_ONLY) {
-      if (t.includes(be)) return { excluded: true, reason: `Backend-only role without Node.js: "${be}"` };
-    }
-  }
-
-  return { excluded: false, reason: "" };
+  // If no signal either way, allow it (don't reject just because remote isn't mentioned)
+  return { remote: true, reason: "No location restriction found" };
 };
 
 /**
- * Compute a strict MERN match score (0-100).
- * Enforces ALL 6 rules from the AI Job Selection Engine.
- * Returns the mandatory JSON format used for every job evaluation.
+ * Compute a job match score (0-100) based on the USER'S actual roles and keywords.
+ * Not hardcoded to any specific tech stack.
  */
-const computeMERNScore = (
+const computeJobScore = (
   title: string,
+  pref: { roles: string[]; keywords: string[]; remote: boolean },
   description?: string | null,
   location?: string | null
-): MERNScoreResult => {
+): JobScoreResult => {
   const reasons: string[] = [];
   const missing: string[] = [];
   let score = 0;
 
-  // ── 0. Empty title guard ──
   if (!title || title.trim().length === 0) {
     return { match_score: 0, is_match: false, reasons: ["Empty title"], missing_skills: [], confidence: "high" };
   }
 
-  // ── Rule 1. Remote check (instant reject if onsite/hybrid) ──
-  const remoteCheck = isRemoteJob(title, location, description);
-  if (!remoteCheck.remote) {
-    return { match_score: 0, is_match: false, reasons: [`Not remote: ${remoteCheck.reason}`], missing_skills: [], confidence: "high" };
-  }
-  reasons.push("Fully remote ✓");
+  const titleLower = title.toLowerCase();
+  const descLower = (description ?? "").toLowerCase();
+  const allText = `${titleLower} ${descLower}`;
 
-  // ── Rule 4. Exclusion check (instant reject) ──
-  const exclusion = isExcludedJob(title, description ?? "");
-  if (exclusion.excluded) {
-    return { match_score: 0, is_match: false, reasons: [exclusion.reason], missing_skills: [], confidence: "high" };
+  // ── 1. Remote check (only if user wants remote) ──
+  if (pref.remote) {
+    const remoteCheck = isRemoteJob(title, location, description);
+    if (!remoteCheck.remote) {
+      return { match_score: 0, is_match: false, reasons: [`Not remote: ${remoteCheck.reason}`], missing_skills: [], confidence: "high" };
+    }
+    reasons.push("Remote ✓");
   }
 
-  // ── Rule 6. Senior role 6+ years check ──
+  // ── 2. Senior role check (reject 6+ year requirements) ──
   if (isSeniorRole(title, description)) {
     return { match_score: 0, is_match: false, reasons: ["Senior role requiring 6+ years experience"], missing_skills: [], confidence: "high" };
   }
 
-  // ── Rule 2. Title matching (0-35 pts) ──
-  const titleMatch = MERN_TITLE_PATTERNS.find((p) => p.pattern.test(title));
-  if (titleMatch) {
-    score += 35;
-    reasons.push(`Title matches: ${titleMatch.label}`);
-  } else {
-    reasons.push(`Title "${title}" doesn't match any MERN role keyword`);
-    // No title match → hard fail
-    return { match_score: 0, is_match: false, reasons, missing_skills: [], confidence: "high" };
+  // ── 3. Role matching (0-50 pts) — does the title match any of the user's target roles? ──
+  const roles = pref.roles.map((r) => r.toLowerCase().trim()).filter(Boolean);
+  let roleMatched = false;
+  let bestRoleMatch = "";
+  for (const role of roles) {
+    // Split role into words and check if all words appear in title
+    const words = role.split(/\s+/);
+    const allInTitle = words.every((w) => titleLower.includes(w));
+    // Also check for partial match — any word > 3 chars matches
+    const partialMatch = words.filter((w) => w.length > 3 && titleLower.includes(w)).length;
+    if (allInTitle) {
+      roleMatched = true;
+      bestRoleMatch = role;
+      score += 50;
+      break;
+    } else if (partialMatch >= 1) {
+      // Partial role match — some points
+      roleMatched = true;
+      bestRoleMatch = role;
+      score += 30;
+      break;
+    }
   }
-
-  // ── Rule 3. Description tech buckets (0-45 pts, 7.5 each for 6 buckets) ──
-  let confidence: "low" | "medium" | "high" = "low";
-  if (description && description.length > 50) {
-    const { hits, misses } = descBucketChecks(description);
-    const bucketScore = Math.min(hits.length * 7.5, 45);
-    score += bucketScore;
-    if (hits.length >= 2) {
-      reasons.push(`Description mentions: ${hits.join(", ")}`);
+  // Also check if generic dev/engineer role words appear
+  if (!roleMatched) {
+    const genericMatch = /\b(developer|engineer|intern|dev)\b/i.test(titleLower);
+    if (genericMatch) {
+      score += 15;
+      reasons.push("Generic developer/engineer title");
     } else {
-      reasons.push(`Description only mentions ${hits.length}/6 MERN techs (need 2+)`);
-    }
-    missing.push(...misses);
-    confidence = hits.length >= 4 ? "high" : hits.length >= 2 ? "medium" : "low";
-
-    // Rule 3: If < 2 buckets hit → hard fail regardless of title
-    if (hits.length < 2) {
-      return {
-        match_score: Math.round(score),
-        is_match: false,
-        reasons,
-        missing_skills: missing,
-        confidence,
-      };
+      reasons.push(`Title "${title}" doesn't match any target role`);
     }
   } else {
-    // No description available — can only judge by title
-    confidence = titleMatch ? "low" : "low";
-    reasons.push("No description available for deep validation");
+    reasons.push(`Title matches role: "${bestRoleMatch}"`);
   }
 
-  // ── 4. Preference bonus signals (0-20 pts, 5 each) ──
-  const prefs = preferenceSignals(title, description ?? "");
-  if (prefs.length > 0) {
-    const bonus = Math.min(prefs.length * 5, 20);
-    score += bonus;
-    reasons.push(`Preference signals: ${prefs.join(", ")}`);
+  // ── 4. Keyword/skill matching in description (0-35 pts) ──
+  let confidence: "low" | "medium" | "high" = "low";
+  const keywords = pref.keywords.map((k) => k.toLowerCase().trim()).filter(Boolean);
+  if (keywords.length > 0 && allText.length > 50) {
+    const matched = keywords.filter((kw) => allText.includes(kw));
+    const missedKw = keywords.filter((kw) => !allText.includes(kw));
+    // Score: percentage of keywords matched × 35
+    const kwScore = Math.round((matched.length / keywords.length) * 35);
+    score += kwScore;
+    missing.push(...missedKw.slice(0, 5));
+    if (matched.length > 0) {
+      reasons.push(`Skills matched: ${matched.slice(0, 6).join(", ")} (${matched.length}/${keywords.length})`);
+    }
+    confidence = matched.length >= keywords.length * 0.4 ? "high"
+      : matched.length >= 2 ? "medium" : "low";
+  } else if (keywords.length > 0) {
+    // Just check title for keywords
+    const matched = keywords.filter((kw) => titleLower.includes(kw));
+    if (matched.length > 0) {
+      score += Math.round((matched.length / keywords.length) * 20);
+      reasons.push(`Title mentions: ${matched.join(", ")}`);
+    }
+    confidence = "low";
   }
 
-  // ── Final evaluation ──
+  // ── 5. Bonus signals (0-15 pts) ──
+  const text = allText;
+  if (/\b(startup|early[\s-]?stage|funded|series\s*[a-c])\b/i.test(text)) { score += 5; reasons.push("Startup"); }
+  if (/\b(intern|internship|entry[\s-]?level|junior|graduate)\b/i.test(text)) { score += 5; reasons.push("Entry-level friendly"); }
+  if (/\b(international|global|anywhere|worldwide|no visa)\b/i.test(text)) { score += 5; reasons.push("International"); }
+
   const finalScore = Math.min(Math.round(score), 100);
-  const isMatch = finalScore >= 65;
+  // Pass threshold: 35/100 — let more jobs through to increase application rate
+  const isMatch = finalScore >= 35;
 
   return {
     match_score: finalScore,
@@ -415,16 +307,28 @@ const computeMERNScore = (
   };
 };
 
-/** Full pre-click validation: returns { pass, reason } — thin wrapper around computeMERNScore */
-const validateMERNJob = (title: string, description?: string | null, location?: string | null): { pass: boolean; reason: string; score?: MERNScoreResult } => {
-  const result = computeMERNScore(title, description, location);
-
+/** Full pre-click validation using user preferences */
+const validateJob = (
+  title: string,
+  pref: { roles: string[]; keywords: string[]; remote: boolean },
+  description?: string | null,
+  location?: string | null
+): { pass: boolean; reason: string; score?: JobScoreResult } => {
+  const result = computeJobScore(title, pref, description, location);
   if (result.is_match) {
-    return { pass: true, reason: `Matches MERN (${result.match_score}%) — ${result.reasons.join("; ")}`, score: result };
+    return { pass: true, reason: `Match (${result.match_score}%) — ${result.reasons.join("; ")}`, score: result };
   }
-  // Pick the most informative reason
-  const primaryReason = result.reasons[0] ?? "Does not match MERN criteria";
+  const primaryReason = result.reasons[0] ?? "Does not match preferences";
   return { pass: false, reason: primaryReason, score: result };
+};
+
+/** Backward-compatible wrapper that always passes (for callsites without pref access) */
+const validateMERNJob = (title: string, description?: string | null, location?: string | null): { pass: boolean; reason: string; score?: JobScoreResult } => {
+  // Without preferences, use a permissive validation — just check title isn't empty
+  if (!title || title.trim().length === 0) {
+    return { pass: false, reason: "Empty title", score: { match_score: 0, is_match: false, reasons: ["Empty title"], missing_skills: [], confidence: "high" } };
+  }
+  return { pass: true, reason: "Passed (no preference filter)", score: { match_score: 50, is_match: true, reasons: ["No preference filter applied"], missing_skills: [], confidence: "low" } };
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -949,16 +853,28 @@ const fillAIQuestions = async (
     try {
       await log(`[fillAIQuestions] Radio "${group.label.slice(0, 40)}" → "${choice}"`);
       if (target?.id) {
-        await page.locator(`[id="${target.id}"]`).first().click({ timeout: 5000 });
+        await page.locator(`[id="${target.id}"]`).first().click({ force: true, timeout: 5000 });
       } else {
         const locator = page
           .locator(`input[type='radio'][name='${group.name}']`)
           .nth(targetIndex);
-        await locator.click({ timeout: 5000 });
+        await locator.click({ force: true, timeout: 5000 });
+      }
+      // Verify the radio was actually selected, click the label if not
+      await page.waitForTimeout(300);
+      const wasChecked = target?.id
+        ? await page.locator(`[id="${target.id}"]`).first().isChecked().catch(() => false)
+        : await page.locator(`input[type='radio'][name='${group.name}']`).nth(targetIndex).isChecked().catch(() => false);
+      if (!wasChecked) {
+        // Try clicking the label instead
+        if (target?.id) {
+          await page.locator(`label[for="${target.id}"]`).first().click({ force: true, timeout: 3000 }).catch(() => {});
+        }
+        await log(`[fillAIQuestions] ⚠️ Radio not checked after click, tried label fallback`);
       }
       filled += 1;
-    } catch {
-      // Skip if click fails (hidden element, overlay, etc.)
+    } catch (radioErr: any) {
+      await log(`[fillAIQuestions] ⚠️ Radio click failed: ${radioErr?.message?.slice(0, 60)}`);
     }
   }
 
@@ -1017,6 +933,24 @@ const fillAIQuestions = async (
   for (const group of checkboxGroups) {
     if (filled >= limit) break;
     if (group.checked) continue;
+
+    // Auto-check consent/agreement/terms checkboxes without AI
+    const lbl = (group.label ?? "").toLowerCase();
+    const isConsent = lbl.includes("consent") || lbl.includes("agree") || lbl.includes("terms") || lbl.includes("privacy") || lbl.includes("acknowledge") || lbl.includes("i certify") || lbl.includes("data processing") || lbl.includes("authorization");
+    if (isConsent) {
+      try {
+        const target2 = group.options[0];
+        if (target2?.id) {
+          await page.locator(`[id="${target2.id}"]`).first().click({ force: true, timeout: 5000 });
+        } else {
+          await page.locator(`input[type='checkbox'][name='${group.name}']`).first().click({ force: true, timeout: 5000 });
+        }
+        await log(`[fillAIQuestions] ✅ Auto-checked consent: "${group.label.slice(0, 60)}"`);
+        filled += 1;
+      } catch {}
+      continue;
+    }
+
     if (!group.label || isSkippableQuestion(group.label)) continue;
 
     const answer = await getAnswer(group.label);
@@ -1041,24 +975,49 @@ const fillAIQuestions = async (
     const target2 = group.options[targetIndex];
     try {
       if (target2?.id) {
-        await page.locator(`[id="${target2.id}"]`).first().click({ timeout: 5000 });
+        await page.locator(`[id="${target2.id}"]`).first().click({ force: true, timeout: 5000 });
       } else {
         const locator = page
           .locator(`input[type='checkbox'][name='${group.name}']`)
           .nth(targetIndex);
-        await locator.click({ timeout: 5000 });
+        await locator.click({ force: true, timeout: 5000 });
       }
       filled += 1;
     } catch {
       // Skip if click fails (toggle switch, hidden element, etc.)
     }
   }
+
+  // Last resort: check ALL unchecked visible required checkboxes
+  // These are checkboxes the above logic missed (e.g. no name attribute, aria-required)
+  try {
+    const unchecked = page.locator("input[type='checkbox'][required]:not(:checked), input[type='checkbox'][aria-required='true']:not(:checked)");
+    const uncheckedCount = await unchecked.count();
+    for (let i = 0; i < uncheckedCount; i++) {
+      const cb = unchecked.nth(i);
+      const visible = await cb.isVisible().catch(() => false);
+      if (visible) {
+        await cb.click({ force: true, timeout: 3000 }).catch(() => {});
+        await log(`[fillAIQuestions] ✅ Force-checked required checkbox ${i}`);
+      }
+    }
+  } catch {}
 };
 
 const ensurePreferencesFromResume = async (userId: string) => {
   const pref = await prisma.searchPreference.findFirst({ where: { userId } });
   const hasPrefs = pref && (pref.roles.length > 0 || pref.keywords.length > 0);
-  if (hasPrefs) return pref!;
+
+  // Always ensure scoreThreshold is reasonable (legacy records may have 0.65)
+  if (hasPrefs) {
+    if (pref!.scoreThreshold > 0.30) {
+      return prisma.searchPreference.update({
+        where: { id: pref!.id },
+        data: { scoreThreshold: 0.20 },
+      });
+    }
+    return pref!;
+  }
 
   const resume = await prisma.resume.findFirst({
     where: { userId },
@@ -1093,7 +1052,7 @@ const ensurePreferencesFromResume = async (userId: string) => {
       locations: locations.slice(0, 2),
       remote: locations.length === 0,
       autoApply: true,
-      scoreThreshold: 0.65,
+      scoreThreshold: 0.20,
     },
   });
 };
@@ -1168,6 +1127,18 @@ const waitForLogin = async (
   loginUrl: string,
   isLoggedIn: () => Promise<boolean>
 ) => {
+  if (headless) {
+    const headlessMessage = canRunHeaded
+      ? `${name} login is required, but the worker is running headless. Set HEADLESS=false and restart the worker to sign in.`
+      : `${name} login is required, but this worker has no display (headless environment). Run the worker locally with a visible browser to sign in.`;
+    await publishEvent({
+      jobId: name,
+      type: "ERROR_OCCURRED",
+      message: headlessMessage,
+    });
+    throw new Error(`LOGIN_UNAVAILABLE:${name}`);
+  }
+
   console.log(`[waitForLogin] Navigating to ${loginUrl}...`);
   await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
   await publishEvent({
@@ -1214,6 +1185,40 @@ const ensureLinkedInLogin = async (page: Page) => {
   const afterLoggedIn = (afterUrl.includes("/feed") || afterUrl.includes("/mynetwork")) && (await page.locator("input[name='session_key']").count()) === 0;
   console.log(`[ensureLinkedInLogin] After wait: url=${afterUrl}, loggedIn=${afterLoggedIn}`);
   if (afterLoggedIn) return;
+
+  // Try auto-login with credentials from environment
+  const linkedInEmail = process.env.LINKEDIN_EMAIL;
+  const linkedInPassword = process.env.LINKEDIN_PASSWORD;
+  if (linkedInEmail && linkedInPassword) {
+    console.log(`[ensureLinkedInLogin] Attempting auto-login with credentials...`);
+    try {
+      await page.goto("https://www.linkedin.com/login", { waitUntil: "domcontentloaded", timeout: 20000 });
+      await page.waitForTimeout(2000);
+      const emailInput = page.locator("input[name='session_key']");
+      const passInput = page.locator("input[name='session_password']");
+      if (await emailInput.count() > 0) {
+        await emailInput.fill(linkedInEmail);
+        await passInput.fill(linkedInPassword);
+        await page.locator("button[type='submit'], button:has-text('Sign in')").first().click();
+        await page.waitForTimeout(6000);
+        const postUrl = page.url();
+        if (postUrl.includes("/feed") || postUrl.includes("/mynetwork") || postUrl.includes("/in/")) {
+          console.log(`[ensureLinkedInLogin] ✅ Auto-login successful!`);
+          return;
+        }
+        if (postUrl.includes("/checkpoint") || postUrl.includes("/challenge")) {
+          console.log(`[ensureLinkedInLogin] ⚠️ Verification/CAPTCHA required after auto-login`);
+          await publishEvent({
+            jobId: "LinkedIn",
+            type: "ERROR_OCCURRED",
+            message: "LinkedIn requires verification. Run worker with HEADLESS=false once to complete sign-in.",
+          });
+        }
+      }
+    } catch (autoErr: any) {
+      console.log(`[ensureLinkedInLogin] Auto-login failed: ${autoErr?.message?.slice(0, 100)}`);
+    }
+  }
 
   await waitForLogin(page, "LinkedIn", "https://www.linkedin.com/login", async () => {
     return (await page.locator("input[name='session_key']").count()) === 0;
@@ -1380,7 +1385,7 @@ const searchLinkedIn = async (
     if (forceApply) {
       await log(`[searchLinkedIn] 🔧 FORCE_APPLY: bypassing validation for "${title}" @ ${job.company ?? "?"}`);
     } else {
-      const validation = validateMERNJob(title, null, job.location);
+      const validation = validateJob(title, pref, null, job.location);
       if (!validation.pass) {
         await log(`[searchLinkedIn] ❌ SKIP "${title}" @ ${job.company ?? "?"} loc="${job.location ?? "?"}" — ${validation.reason} (score=${validation.score?.match_score ?? "?"})`);
         continue;
@@ -1398,13 +1403,13 @@ const searchLinkedIn = async (
     });
   }
 
-  console.log(`[searchLinkedIn] Returning ${filtered.length} MERN-matched jobs (filtered from ${withUrls.length})`);
+  console.log(`[searchLinkedIn] Returning ${filtered.length} matched jobs (filtered from ${withUrls.length})`);
   return filtered;
 };
 
 const searchIndeed = async (page: Page, pref: SearchPreference, limit: number) => {
   const query = buildQuery(pref);
-  const location = "Remote"; // Rule 1: fully remote only
+  const location = pref.remote ? "Remote" : (pref.locations[0] ?? "");
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   params.set("l", location);
@@ -1429,6 +1434,23 @@ const searchIndeed = async (page: Page, pref: SearchPreference, limit: number) =
   await page.screenshot({ path: `${screenshotDir}/indeed-search.png`, fullPage: false });
   console.log(`[searchIndeed] Screenshot saved to artifacts/screenshots/indeed-search.png`);
 
+  const title = await page.title().catch(() => "");
+  const bodyText = ((await page.textContent("body").catch(() => "")) ?? "").toLowerCase();
+  if (
+    title.toLowerCase().includes("blocked") ||
+    bodyText.includes("access denied") ||
+    bodyText.includes("unusual traffic")
+  ) {
+    await publishEvent({
+      jobId: "Indeed",
+      type: "ERROR_OCCURRED",
+      message:
+        "Indeed blocked automated browsing in this environment, so no Indeed jobs were collected in this run.",
+    });
+    console.log(`[searchIndeed] Block detected. title="${title}"`);
+    return [];
+  }
+
   for (let i = 0; i < 3; i += 1) {
     await page.mouse.wheel(0, 1200);
     await page.waitForTimeout(1000);
@@ -1440,6 +1462,11 @@ const searchIndeed = async (page: Page, pref: SearchPreference, limit: number) =
   if (cardCount === 0) {
     console.log(`[searchIndeed] No job cards found. Page title: ${await page.title()}`);
     console.log(`[searchIndeed] Current URL: ${page.url()}`);
+    await publishEvent({
+      jobId: "Indeed",
+      type: "STEP_COMPLETED",
+      message: "Indeed returned no job cards for this query.",
+    });
     return [];
   }
 
@@ -1478,7 +1505,7 @@ const searchIndeed = async (page: Page, pref: SearchPreference, limit: number) =
   }
 
   const withJk = jobs.filter((job) => job.jk);
-  console.log(`[searchIndeed] ${withJk.length} jobs with JK, now validating MERN match...`);
+  console.log(`[searchIndeed] ${withJk.length} jobs with JK, now validating match...`);
 
   const validatedResults: Array<{
     externalId: string;
@@ -1494,7 +1521,7 @@ const searchIndeed = async (page: Page, pref: SearchPreference, limit: number) =
     if (forceApply) {
       await log(`[searchIndeed] 🔧 FORCE_APPLY: bypassing validation for "${title}" @ ${job.company ?? "?"}`);
     } else {
-      const validation = validateMERNJob(title, null, job.location);
+      const validation = validateJob(title, pref, null, job.location);
       if (!validation.pass) {
         await log(`[searchIndeed] ❌ SKIP "${title}" @ ${job.company ?? "?"} loc="${job.location ?? "?"}" — ${validation.reason} (score=${validation.score?.match_score ?? "?"})`);
         continue;
@@ -1511,7 +1538,7 @@ const searchIndeed = async (page: Page, pref: SearchPreference, limit: number) =
     });
   }
 
-  console.log(`[searchIndeed] Returning ${validatedResults.length} MERN-matched jobs (filtered from ${withJk.length})`);
+  console.log(`[searchIndeed] Returning ${validatedResults.length} matched jobs (filtered from ${withJk.length})`);
   return validatedResults;
 };
 
@@ -1664,6 +1691,12 @@ export const runFullAutomation = async (userId: string) => {
   }
   console.log(`[runFullAutomation] Preferences loaded - roles: ${pref.roles.join(", ")}, keywords: ${pref.keywords.slice(0, 5).join(", ")}`);
 
+  await publishEvent({
+    jobId: userId,
+    type: "STEP_COMPLETED",
+    message: `Preferences loaded: ${pref.roles.slice(0, 3).join(", ")} · ${pref.keywords.slice(0, 5).join(", ")}`,
+  });
+
   const [resumeContext, user] = await Promise.all([
     getResumeContext(userId),
     prisma.user.findUnique({ where: { id: userId } }),
@@ -1676,9 +1709,22 @@ export const runFullAutomation = async (userId: string) => {
       : undefined;
   resumeTailorCount = 0;
 
+  await publishEvent({
+    jobId: userId,
+    type: "STEP_COMPLETED",
+    message: "Launching browser...",
+  });
+
   console.log(`[runFullAutomation] Launching Chrome (headless=${headless})...`);
   const context = await getContext(userId);
   console.log(`[runFullAutomation] Chrome launched, opening page...`);
+
+  await publishEvent({
+    jobId: userId,
+    type: "STEP_COMPLETED",
+    message: "Browser launched. Signing into LinkedIn...",
+  });
+
   const page = await context.newPage();
 
   try {
@@ -1691,6 +1737,10 @@ export const runFullAutomation = async (userId: string) => {
     });
 
     try {
+      let browserDiscoveredCount = 0;
+      let queuedApplicationCount = 0;
+      let fallbackTriggered = false;
+
       let linkedInJobs: Awaited<ReturnType<typeof searchLinkedIn>> = [];
       try {
         await ensureLinkedInLogin(page);
@@ -1706,7 +1756,11 @@ export const runFullAutomation = async (userId: string) => {
           searchCombos.push({ query: q, location: "Worldwide", remote: true, easyApplyOnly: true });
         }
         // Round 3: First query with "Remote", no Easy Apply filter (find all apply types)
-        searchCombos.push({ query: queries[0] ?? "MERN Stack Developer", location: "Remote", remote: true, easyApplyOnly: false });
+        searchCombos.push({ query: queries[0] ?? "Full Stack Developer", location: "Remote", remote: true, easyApplyOnly: false });
+        // Round 4: Search for full-time roles explicitly
+        for (const q of queries.slice(0, 2)) {
+          searchCombos.push({ query: `${q} full time`, location: "Remote", remote: true, easyApplyOnly: false });
+        }
 
         const seenUrls = new Set<string>();
         const normalizeJobUrl = (url: string) => {
@@ -1735,17 +1789,21 @@ export const runFullAutomation = async (userId: string) => {
         }
       } catch (err: any) {
         const msg = err?.message ?? "";
-        if (msg.includes("LOGIN_TIMEOUT")) {
-          console.log(`[runFullAutomation] LinkedIn login timed out, skipping LinkedIn`);
+        if (msg.includes("LOGIN_TIMEOUT") || msg.includes("LOGIN_UNAVAILABLE")) {
+          const loginMessage = msg.includes("LOGIN_UNAVAILABLE")
+            ? "LinkedIn skipped: set LINKEDIN_EMAIL & LINKEDIN_PASSWORD env vars, or run once with HEADLESS=false to sign in. Trying other sources..."
+            : "LinkedIn login timed out – skipping. Trying other sources...";
+          console.log(`[runFullAutomation] ${loginMessage}`);
           await publishEvent({
             jobId: userId,
             type: "STEP_COMPLETED",
-            message: "LinkedIn login timed out – skipping. Trying Indeed...",
+            message: loginMessage,
           });
         } else {
           console.error(`[runFullAutomation] LinkedIn error:`, msg);
         }
       }
+      browserDiscoveredCount += linkedInJobs.length;
 
       // Build profile for direct application
       const resume = resumeContext.resume;
@@ -1774,11 +1832,11 @@ export const runFullAutomation = async (userId: string) => {
             : null;
         if (description) aiCount += 1;
 
-        // Deep MERN validation with description + location + JSON scoring
+        // Deep validation with description + location + scoring
         if (forceApply) {
           await log(`[runFullAutomation] 🔧 FORCE_APPLY: bypassing deep validation for "${job.title}"`);
         } else if (description && description.length > 50) {
-          const descValidation = validateMERNJob(job.title ?? "", description, job.location ?? null);
+          const descValidation = validateJob(job.title ?? "", pref, description, job.location ?? null);
           const s = descValidation.score;
           if (!descValidation.pass) {
             await log(`[runFullAutomation] ❌ DEEP SKIP "${job.title}" — ${descValidation.reason} | score=${s?.match_score ?? "?"}/100 confidence=${s?.confidence ?? "?"} missing=[${s?.missing_skills?.join(", ") ?? ""}]`);
@@ -1796,12 +1854,20 @@ export const runFullAutomation = async (userId: string) => {
           providerOverride,
           true // skipStream — we apply directly below
         );
+        if (queued?.application) {
+          queuedApplicationCount += 1;
+        }
 
         // Apply directly using the same browser session
         if (queued?.application && job.platform === "LINKEDIN") {
           const { application, createdJob } = queued;
           try {
             await log(`[runFullAutomation] 🚀 Applying directly: "${job.title}" @ ${job.company}`);
+            await publishEvent({
+              jobId: application.id,
+              type: "STEP_COMPLETED",
+              message: `Applying to "${job.title}" @ ${job.company}...`,
+            });
             await prisma.application.update({
               where: { id: application.id },
               data: { status: "PROCESSING" },
@@ -1885,6 +1951,12 @@ export const runFullAutomation = async (userId: string) => {
             });
 
             await log(`[runFullAutomation] ✅ Result for "${job.title}": ${result}`);
+            const resultEmoji = result === "APPLIED" ? "✅" : result === "FAILED" ? "❌" : "⚠️";
+            await publishEvent({
+              jobId: application.id,
+              type: result === "APPLIED" ? "STEP_COMPLETED" : "ERROR_OCCURRED",
+              message: `${resultEmoji} ${result}: "${job.title}" @ ${job.company}`,
+            });
 
             // Message the job poster after successful application
             if (result === "APPLIED") {
@@ -1919,17 +1991,21 @@ export const runFullAutomation = async (userId: string) => {
         indeedJobs = await searchIndeed(page, pref, 25);
       } catch (err: any) {
         const msg = err?.message ?? "";
-        if (msg.includes("LOGIN_TIMEOUT")) {
-          console.log(`[runFullAutomation] Indeed login timed out, skipping Indeed`);
+        if (msg.includes("LOGIN_TIMEOUT") || msg.includes("LOGIN_UNAVAILABLE")) {
+          const loginMessage = msg.includes("LOGIN_UNAVAILABLE")
+            ? "Indeed browser skipped (headless). Indeed RSS + 7 other API sources are still active."
+            : "Indeed login timed out. Indeed RSS + 7 other API sources are still active.";
+          console.log(`[runFullAutomation] ${loginMessage}`);
           await publishEvent({
             jobId: userId,
             type: "STEP_COMPLETED",
-            message: "Indeed login timed out – skipping.",
+            message: loginMessage,
           });
         } else {
           console.error(`[runFullAutomation] Indeed error:`, msg);
         }
       }
+      browserDiscoveredCount += indeedJobs.length;
 
       for (const job of indeedJobs) {
         const description =
@@ -1938,9 +2014,9 @@ export const runFullAutomation = async (userId: string) => {
             : null;
         if (description) aiCount += 1;
 
-        // Deep MERN validation with description
+        // Deep validation with description
         if (description && description.length > 50) {
-          const descValidation = validateMERNJob(job.title ?? "", description);
+          const descValidation = validateJob(job.title ?? "", pref, description);
           if (!descValidation.pass) {
             await log(`[runFullAutomation] ❌ DEEP SKIP Indeed "${job.title}" — ${descValidation.reason}`);
             await sleep(400);
@@ -1949,7 +2025,7 @@ export const runFullAutomation = async (userId: string) => {
           await log(`[runFullAutomation] ✅ DEEP MATCH Indeed "${job.title}" — description validated`);
         }
 
-        await queueJob(
+        const queued = await queueJob(
           pref,
           { ...job, description },
           batch.id,
@@ -1957,7 +2033,34 @@ export const runFullAutomation = async (userId: string) => {
           providerOverride,
           false // Indeed jobs go through stream — they need a separate browser flow
         );
+        if (queued?.application) {
+          queuedApplicationCount += 1;
+        }
         await sleep(800);
+      }
+
+      if (browserDiscoveredCount === 0) {
+        await publishEvent({
+          jobId: userId,
+          type: "STEP_COMPLETED",
+          message:
+            "No jobs from LinkedIn/Indeed browser search. Running discovery from 12 public APIs (Remotive, Arbeitnow, RemoteOK, Himalayas, Jobicy, Indeed RSS, The Muse, Wellfound, Naukri, YC Startups, Adzuna, Glassdoor).",
+        });
+        try {
+          await runDiscoveryNow(userId);
+          fallbackTriggered = true;
+          await publishEvent({
+            jobId: userId,
+            type: "STEP_COMPLETED",
+            message: "Discovery finished across 12 job APIs (Remotive, Arbeitnow, RemoteOK, Himalayas, Jobicy, Indeed RSS, The Muse, Wellfound, Naukri, YC Startups, Adzuna, Glassdoor).",
+          });
+        } catch (fallbackErr: any) {
+          await publishEvent({
+            jobId: userId,
+            type: "ERROR_OCCURRED",
+            message: `Fallback discovery failed: ${fallbackErr?.message ?? "unknown error"}`,
+          });
+        }
       }
 
       await prisma.jobImportBatch.update({
@@ -1968,7 +2071,7 @@ export const runFullAutomation = async (userId: string) => {
       await publishEvent({
         jobId: userId,
         type: "STEP_COMPLETED",
-        message: "Discovery complete. Jobs queued for review.",
+        message: `Discovery complete. Browser jobs: ${browserDiscoveredCount}. Applications queued: ${queuedApplicationCount}.${fallbackTriggered ? " Public fallback discovery was also triggered." : ""}`,
       });
     } catch (err: any) {
       await prisma.jobImportBatch.update({
@@ -2139,6 +2242,14 @@ const applyLinkedIn = async (
     const stepStart = Date.now();
     await log(`[applyLinkedIn] Step ${step + 1}/${MAX_STEPS}: filling fields...`);
 
+    // Check if the modal/page is still alive
+    try {
+      await page.evaluate(() => document.readyState);
+    } catch {
+      await log(`[applyLinkedIn] ❌ Page context dead at step ${step + 1}`);
+      return "MANUAL" as const;
+    }
+
     await fillCommonFields(page, profile, coverLetterText, fallbackText);
     await fillAIQuestions(
       page,
@@ -2153,6 +2264,71 @@ const applyLinkedIn = async (
       aiAnswerLimit,
       providerOverride
     );
+
+    // ── FALLBACK: Force-fill any blank required select with first non-blank option ──
+    try {
+      const blankSelects = await page.$$eval("select[required], select[aria-required='true']", (selects) => {
+        return selects
+          .filter(sel => {
+            const s = sel as HTMLSelectElement;
+            const val = s.value ?? "";
+            const text = s.selectedOptions?.[0]?.textContent?.trim()?.toLowerCase() ?? "";
+            return (!val || val === "" || text === "select" || text.startsWith("select") || text === "--" || text === "") && (sel as HTMLElement).offsetParent !== null;
+          })
+          .map(sel => {
+            const s = sel as HTMLSelectElement;
+            const options = Array.from(s.options)
+              .map(o => ({ value: o.value, text: (o.textContent ?? "").trim() }))
+              .filter(o => o.value && o.text && !o.text.toLowerCase().startsWith("select") && o.text !== "--" && o.text !== "-");
+            return {
+              id: s.getAttribute("id") ?? "",
+              name: s.getAttribute("name") ?? "",
+              label: s.getAttribute("aria-label") ?? "",
+              firstOption: options[0]?.value ?? null,
+              firstText: options[0]?.text ?? null,
+            };
+          })
+          .filter(s => s.firstOption !== null);
+      });
+
+      for (const sel of blankSelects) {
+        const locator = sel.id
+          ? page.locator(`select[id="${sel.id}"]`).first()
+          : sel.name
+          ? page.locator(`select[name="${sel.name}"]`).first()
+          : null;
+        if (locator && sel.firstOption) {
+          await locator.selectOption(sel.firstOption).catch(() => {});
+          await log(`[applyLinkedIn] 🔧 Force-filled blank select "${sel.label || sel.name}" → "${sel.firstText}"`);
+        }
+      }
+    } catch {}
+
+    // ── FALLBACK: Check unchecked required radios — if a group has no selection, pick first ──
+    try {
+      const uncheckedRadioGroups = await page.$$eval("input[type='radio'][required]:not(:checked), input[type='radio'][aria-required='true']:not(:checked)", (nodes) => {
+        const groupNames = new Set<string>();
+        const result: Array<{ name: string; id: string }> = [];
+        for (const node of nodes) {
+          const input = node as HTMLInputElement;
+          const name = input.getAttribute("name") ?? "";
+          if (!name || groupNames.has(name)) continue;
+          // Check if ANY radio in this group is checked
+          const anyChecked = document.querySelector(`input[type='radio'][name='${name}']:checked`);
+          if (anyChecked) { groupNames.add(name); continue; }
+          groupNames.add(name);
+          result.push({ name, id: input.getAttribute("id") ?? "" });
+        }
+        return result;
+      });
+
+      for (const group of uncheckedRadioGroups) {
+        // Click the first option in the group
+        const firstRadio = page.locator(`input[type='radio'][name='${group.name}']`).first();
+        await firstRadio.click({ force: true, timeout: 3000 }).catch(() => {});
+        await log(`[applyLinkedIn] 🔧 Force-selected first radio in group "${group.name}"`);
+      }
+    } catch {}
 
     // Log what's visible for debugging
     const visibleBtns = await page.$$eval("button, a[role='button']", (els) =>
@@ -2197,23 +2373,8 @@ const applyLinkedIn = async (
       await log(`[applyLinkedIn] ⚠️ FILL: Validation errors on step ${step + 1}: ${JSON.stringify(validationErrors.slice(0, 5))}`);
     }
 
-    // If required fields are NOT filled, re-try fill once more before deciding next action
+    // If required fields are NOT filled, give a brief pause (the fallbacks above already ran)
     if (!allRequiredFilled && step < MAX_STEPS - 1) {
-      // Re-attempt fill for the unfilled fields
-      await fillCommonFields(page, profile, coverLetterText, fallbackText);
-      await fillAIQuestions(
-        page,
-        {
-          name: profile.name ?? "Applicant",
-          skills: resumeContext.skills,
-          experience: resumeContext.experienceSummary,
-          linkedin: profile.linkedin,
-          github: profile.github,
-          website: profile.website,
-        },
-        aiAnswerLimit,
-        providerOverride
-      );
       await page.waitForTimeout(500);
     }
 
@@ -2267,21 +2428,7 @@ const applyLinkedIn = async (
       ).catch(() => []);
       if (postReviewErrors.length > 0) {
         await log(`[applyLinkedIn] ⚠️ Review blocked by errors: ${JSON.stringify(postReviewErrors.slice(0, 3))}`);
-        // Re-fill and retry on next iteration
-        await fillCommonFields(page, profile, coverLetterText, fallbackText);
-        await fillAIQuestions(
-          page,
-          {
-            name: profile.name ?? "Applicant",
-            skills: resumeContext.skills,
-            experience: resumeContext.experienceSummary,
-            linkedin: profile.linkedin,
-            github: profile.github,
-            website: profile.website,
-          },
-          aiAnswerLimit,
-          providerOverride
-        );
+        // Errors mean required fields are still blank — the main loop fallbacks will handle them on next iteration
       }
       continue;
     }
@@ -2650,6 +2797,7 @@ export const applyWithBrowser = async (payload: {
   platform: Platform;
 }) => {
   const { applicationId, userId, jobId, jobUrl, platform } = payload;
+  resumeTailorCount = 0; // Reset per-job to avoid stale count across stream-based applications
   await log(`[applyWithBrowser] Starting: ${applicationId} (${platform})`);
 
   let context: BrowserContext;
@@ -2674,7 +2822,7 @@ export const applyWithBrowser = async (payload: {
       data: { status: "PROCESSING" },
     });
 
-    const [user, resume, jobRecord, existingCover] = await Promise.all([
+    const [user, resume, jobRecord, existingCover, pref] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.resume.findFirst({ where: { userId }, orderBy: { createdAt: "desc" } }),
       prisma.job.findUnique({ where: { id: jobId } }),
@@ -2682,6 +2830,7 @@ export const applyWithBrowser = async (payload: {
         where: { applicationId },
         orderBy: { createdAt: "desc" },
       }),
+      prisma.searchPreference.findFirst({ where: { userId } }),
     ]);
     job = jobRecord;
     const providerOverride =
@@ -2742,17 +2891,17 @@ export const applyWithBrowser = async (payload: {
         await prisma.application.update({ where: { id: applicationId }, data: { status: "FAILED", error: "Invalid job URL — navigated away from job page" } });
         return;
       }
-      // Final MERN validation on the job page title
+      // Validate job page title against user preferences
       const pageJobTitle = await page.locator("h1, .jobs-unified-top-card__job-title, .top-card-layout__title").first().textContent().catch(() => "") ?? "";
-      if (pageJobTitle.trim()) {
-        const pageValidation = validateMERNJob(pageJobTitle.trim());
+      if (pageJobTitle.trim() && pref) {
+        const pageValidation = validateJob(pageJobTitle.trim(), pref);
         if (!pageValidation.pass) {
-          await log(`[applyWithBrowser] ❌ Page title MERN check failed: "${pageJobTitle.trim()}" — ${pageValidation.reason}`);
+          await log(`[applyWithBrowser] ❌ Page title check failed: "${pageJobTitle.trim()}" — ${pageValidation.reason}`);
           await page.close().catch(() => undefined);
-          await prisma.application.update({ where: { id: applicationId }, data: { status: "FAILED", error: `Not a MERN job: ${pageValidation.reason}` } });
+          await prisma.application.update({ where: { id: applicationId }, data: { status: "FAILED", error: `Not a match: ${pageValidation.reason}` } });
           return;
         }
-        await log(`[applyWithBrowser] ✅ Page title MERN check passed: "${pageJobTitle.trim()}"`);
+        await log(`[applyWithBrowser] ✅ Page title check passed: "${pageJobTitle.trim()}"`);
       }
       await page.waitForTimeout(2000);
       const description = job?.rawDescription ?? (await extractJobDescription(page, platform));
@@ -2763,16 +2912,16 @@ export const applyWithBrowser = async (payload: {
         });
       }
 
-      // Deep MERN description validation before spending effort on apply
-      if (description && description.length > 50) {
-        const descCheck = validateMERNJob(jobRecord?.title ?? pageJobTitle ?? "", description);
+      // Description validation before spending effort on apply
+      if (description && description.length > 50 && pref) {
+        const descCheck = validateJob(jobRecord?.title ?? pageJobTitle ?? "", pref, description);
         if (!descCheck.pass) {
-          await log(`[applyWithBrowser] ❌ Description MERN validation failed: ${descCheck.reason}`);
+          await log(`[applyWithBrowser] ❌ Description validation failed: ${descCheck.reason}`);
           await page.close().catch(() => undefined);
-          await prisma.application.update({ where: { id: applicationId }, data: { status: "FAILED", error: `Not MERN: ${descCheck.reason}` } });
+          await prisma.application.update({ where: { id: applicationId }, data: { status: "FAILED", error: `Not a match: ${descCheck.reason}` } });
           return;
         }
-        await log(`[applyWithBrowser] ✅ Description MERN validation passed`);
+        await log(`[applyWithBrowser] ✅ Description validation passed`);
       }
 
       if (
@@ -2906,8 +3055,99 @@ export const applyWithBrowser = async (payload: {
         providerOverride
       );
     } else {
-      await page.goto(jobUrl, { waitUntil: "domcontentloaded" });
-      result = "MANUAL";
+      // Generic apply: navigate to the job/apply URL and try to fill forms
+      await log(`[applyWithBrowser] Generic platform (${platform}): navigating to ${jobUrl}`);
+      try {
+        const targetUrl = job?.applyUrl ?? jobUrl;
+        await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+        await page.waitForTimeout(3000);
+        await log(`[applyWithBrowser] Generic: page loaded, URL: ${page.url()}`);
+
+        // Try to find and click an Apply button on the page
+        const applySelectors = [
+          "a[href*='apply']",
+          "button:has-text('Apply')",
+          "a:has-text('Apply Now')",
+          "a:has-text('Apply')",
+          "button:has-text('Submit Application')",
+          "a[class*='apply']",
+          "button[class*='apply']",
+        ];
+
+        for (const sel of applySelectors) {
+          try {
+            const loc = page.locator(sel).first();
+            if (await loc.isVisible({ timeout: 2000 }).catch(() => false)) {
+              const href = await loc.getAttribute("href").catch(() => "") ?? "";
+              await log(`[applyWithBrowser] Generic: found apply element: ${sel} href=${href.slice(0, 80)}`);
+              // If it's a link to an external application page, navigate there
+              if (href && (href.startsWith("http") || href.startsWith("/"))) {
+                const applyPageUrl = href.startsWith("http") ? href : new URL(href, page.url()).toString();
+                await page.goto(applyPageUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+                await page.waitForTimeout(2000);
+              } else {
+                await loc.click();
+                await page.waitForTimeout(2000);
+              }
+              break;
+            }
+          } catch {}
+        }
+
+        // Try filling common form fields
+        await fillCommonFields(page, profile, coverLetterText, experienceSummary);
+
+        // Upload resume if file input available
+        if (profile.resumePath) {
+          const fileInput = page.locator("input[type='file']").first();
+          if (await fileInput.count() > 0) {
+            await fileInput.setInputFiles(profile.resumePath).catch((e: any) => {
+              log(`[applyWithBrowser] Generic: resume upload failed: ${e?.message}`);
+            });
+            await page.waitForTimeout(1500);
+          }
+        }
+
+        // Try to submit the form
+        const submitSelectors = [
+          "button[type='submit']",
+          "button:has-text('Submit')",
+          "button:has-text('Apply')",
+          "input[type='submit']",
+        ];
+
+        let submitted = false;
+        if (autoSubmit) {
+          for (const sel of submitSelectors) {
+            try {
+              const btn = page.locator(sel).first();
+              if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+                await btn.click();
+                await page.waitForTimeout(3000);
+                submitted = true;
+                await log(`[applyWithBrowser] Generic: clicked submit button: ${sel}`);
+                break;
+              }
+            } catch {}
+          }
+        }
+
+        // Check for success indicators
+        const bodyText = await page.textContent("body").catch(() => "") ?? "";
+        const successIndicators = /thank you|application.*received|successfully.*submitted|applied|confirmation/i;
+        if (submitted && successIndicators.test(bodyText)) {
+          result = "APPLIED";
+          await log(`[applyWithBrowser] Generic: Application appears successful!`);
+        } else {
+          result = "MANUAL";
+          await log(`[applyWithBrowser] Generic: Could not confirm submission. Manual review needed.`);
+        }
+
+        await page.screenshot({ path: `${process.cwd()}/artifacts/screenshots/generic-${applicationId.slice(0, 8)}.png` }).catch(() => {});
+      } catch (err: any) {
+        await log(`[applyWithBrowser] Generic apply error: ${err?.message?.slice(0, 200)}`);
+        result = "MANUAL";
+      }
     }
 
     await prisma.application.update({

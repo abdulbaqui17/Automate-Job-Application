@@ -1,11 +1,12 @@
 import Topbar from "../../../components/Topbar";
 import SettingsPanel from "../../../components/SettingsPanel";
+import PageWrapper from "../../../components/PageWrapper";
 
 export default function SettingsPage() {
   return (
-    <div>
+    <PageWrapper>
       <Topbar title="Settings" />
       <SettingsPanel />
-    </div>
+    </PageWrapper>
   );
 }

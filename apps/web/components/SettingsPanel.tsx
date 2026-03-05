@@ -22,6 +22,7 @@ export default function SettingsPanel() {
   const [userId, setUserId] = useState("");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [verified, setVerified] = useState(false);
 
   /* ── resume flow ── */
   const [file, setFile] = useState<File | null>(null);
@@ -39,8 +40,17 @@ export default function SettingsPanel() {
     const stored = window.localStorage.getItem("applycraft_userId");
     if (stored) {
       setUserId(stored);
-      loadUser(stored);
-      loadResume(stored);
+      loadUser(stored).then((ok) => {
+        if (ok) {
+          setVerified(true);
+          loadResume(stored);
+        } else {
+          // API not reachable or user not found — let user re-enter info
+          setUserId("");
+          window.localStorage.removeItem("applycraft_userId");
+          setStatus("Could not load saved account — please enter your info again.");
+        }
+      });
     }
   }, []);
 
@@ -50,13 +60,18 @@ export default function SettingsPanel() {
     window.localStorage.setItem("applycraft_userId", id);
   };
 
-  const loadUser = async (id: string) => {
-    const res = await fetch(`${apiUrl}/users/${id}`);
-    if (!res.ok) return;
-    const u = await res.json();
-    if (u.fullName) setFullName(u.fullName);
-    if (u.email) setEmail(u.email);
-    setStep("upload");
+  const loadUser = async (id: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiUrl}/users/${id}`);
+      if (!res.ok) return false;
+      const u = await res.json();
+      if (u.fullName) setFullName(u.fullName);
+      if (u.email) setEmail(u.email);
+      setStep("upload");
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const loadResume = async (id: string) => {
@@ -78,15 +93,32 @@ export default function SettingsPanel() {
     setEducation(p.education ?? []);
   };
 
+  /* ── reset stored user ── */
+  const resetUser = () => {
+    window.localStorage.removeItem("applycraft_userId");
+    setUserId("");
+    setVerified(false);
+    setEmail("");
+    setFullName("");
+    setStep("user");
+    setStatus("");
+    setProfile({});
+    setSkills("");
+    setExperience([]);
+    setEducation([]);
+  };
+
   /* ── step 1: create / load user ── */
   const createUser = async () => {
     if (!email) { setStatus("Enter your email."); return; }
+    if (!fullName.trim()) { setStatus("Enter your full name."); return; }
     setStatus("Saving…");
     try {
       const lookup = await fetch(`${apiUrl}/users?email=${encodeURIComponent(email)}`);
       if (lookup.ok) {
         const existing = await lookup.json();
         save(existing.id);
+        setVerified(true);
         setFullName(existing.fullName ?? fullName);
         await loadResume(existing.id);
         setStep(step === "user" ? "upload" : step);
@@ -98,12 +130,13 @@ export default function SettingsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, fullName: fullName || undefined }),
       });
-      if (!res.ok) { setStatus("Failed to create user."); return; }
+      if (!res.ok) { setStatus("Failed to create user. Is the API server running?"); return; }
       const u = await res.json();
       save(u.id);
+      setVerified(true);
       setStep("upload");
       setStatus("");
-    } catch { setStatus("Network error."); }
+    } catch { setStatus("Network error — make sure the API server is running on " + apiUrl); }
   };
 
   /* ── step 2: upload resume ── */
@@ -196,27 +229,33 @@ export default function SettingsPanel() {
           <span style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             width: 28, height: 28, borderRadius: "50%", fontSize: 14, fontWeight: 700,
-            background: userId ? "var(--accent, #6366f1)" : "var(--muted, #e5e7eb)",
-            color: userId ? "#fff" : "var(--fg, #111)",
+            background: verified ? "var(--accent, #6366f1)" : "var(--muted, #e5e7eb)",
+            color: verified ? "#fff" : "var(--fg, #111)",
           }}>1</span>
           <h3 style={{ margin: 0 }}>Your info</h3>
-          {userId && <span style={{ fontSize: 13, color: "var(--success, #22c55e)" }}>✓</span>}
+          {verified && <span style={{ fontSize: 13, color: "var(--success, #22c55e)" }}>✓</span>}
         </div>
 
         <div className="form-grid">
           <div className="field">
             <label className="label">Email</label>
             <input className="input" placeholder="you@example.com" value={email}
-              onChange={(e) => setEmail(e.target.value)} disabled={!!userId} />
+              onChange={(e) => setEmail(e.target.value)} disabled={verified} />
           </div>
           <div className="field">
             <label className="label">Full name</label>
             <input className="input" placeholder="Your Name" value={fullName}
-              onChange={(e) => setFullName(e.target.value)} />
+              onChange={(e) => setFullName(e.target.value)} disabled={verified} />
           </div>
-          {!userId && (
+          {!verified && (
             <div className="field" style={{ alignSelf: "end" }}>
               <button className="button primary" onClick={createUser}>Continue</button>
+            </div>
+          )}
+          {verified && (
+            <div className="field" style={{ alignSelf: "end" }}>
+              <button className="button ghost" onClick={resetUser}
+                style={{ fontSize: 13 }}>Change account</button>
             </div>
           )}
         </div>

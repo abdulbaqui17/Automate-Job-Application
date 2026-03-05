@@ -1,11 +1,12 @@
 import Topbar from "../../../components/Topbar";
 import AnalyticsBoard from "../../../components/AnalyticsBoard";
+import PageWrapper from "../../../components/PageWrapper";
 
 export default function AnalyticsPage() {
   return (
-    <div>
+    <PageWrapper>
       <Topbar title="Analytics" />
       <AnalyticsBoard />
-    </div>
+    </PageWrapper>
   );
 }

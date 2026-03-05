@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Topbar from "../../../components/Topbar";
 import StatusPill from "../../../components/StatusPill";
+import PageWrapper from "../../../components/PageWrapper";
+import AnimatedNumber from "../../../components/AnimatedNumber";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -68,74 +70,114 @@ export default function QueuePage() {
 
   if (!userId) {
     return (
-      <div>
+      <PageWrapper>
         <Topbar title="Queue" />
         <div className="panel">
-          <h3>Queue status</h3>
+          <h3
+            style={{
+              margin: 0,
+              fontFamily: "var(--font-display), sans-serif",
+              fontSize: "1.05rem",
+              fontWeight: 600,
+            }}
+          >
+            Queue status
+          </h3>
           <p className="helper">Set a user id in Settings to view queue status.</p>
         </div>
-      </div>
+      </PageWrapper>
     );
   }
 
   return (
-    <div>
+    <PageWrapper>
       <Topbar title="Queue" />
       <div className="panel">
-        <div className="topbar" style={{ marginBottom: "16px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 20,
+          }}
+        >
           <div>
-            <h3 style={{ margin: 0 }}>Queue status</h3>
-            <p className="helper" style={{ margin: "6px 0 0" }}>
+            <h3
+              style={{
+                margin: 0,
+                fontFamily: "var(--font-display), sans-serif",
+                fontSize: "1.05rem",
+                fontWeight: 600,
+              }}
+            >
+              Queue status
+            </h3>
+            <p className="helper" style={{ margin: "4px 0 0", fontSize: "0.8rem" }}>
               {status}
             </p>
           </div>
-          <button className="button ghost" onClick={() => refresh(userId)}>
+          <button className="button ghost" onClick={() => refresh(userId)} style={{ fontSize: "0.8rem", padding: "6px 14px" }}>
             Refresh
           </button>
         </div>
 
-        <section className="metrics" style={{ marginBottom: "20px" }}>
+        <section className="metrics" style={{ marginBottom: 24 }}>
           <div className="metric">
             <span>Queued</span>
-            <h4>{queuedCount}</h4>
+            <h4><AnimatedNumber value={queuedCount} /></h4>
           </div>
           <div className="metric">
             <span>Processing</span>
-            <h4>{processingCount}</h4>
+            <h4><AnimatedNumber value={processingCount} /></h4>
           </div>
         </section>
 
         {queueItems.length === 0 ? (
           <p className="helper">No queued applications right now.</p>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Company</th>
-                <th>Status</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {queueItems.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <a href={item.job.jobUrl} target="_blank" rel="noreferrer">
-                      {item.job.title ?? item.job.jobUrl}
-                    </a>
-                  </td>
-                  <td>{item.job.company ?? "-"}</td>
-                  <td>
-                    <StatusPill status={item.status} />
-                  </td>
-                  <td>{new Date(item.updatedAt).toLocaleString()}</td>
+          <div className="table-wrapper">
+            <table className="activity-table">
+              <thead>
+                <tr>
+                  <th className="col-role">Role</th>
+                  <th className="col-company">Company</th>
+                  <th className="col-status">Status</th>
+                  <th className="col-updated">Updated</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {queueItems.map((item) => (
+                  <tr key={item.id}>
+                    <td className="col-role">
+                      <a
+                        href={item.job.jobUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="role-link"
+                        title={item.job.title ?? item.job.jobUrl}
+                      >
+                        {item.job.title ?? item.job.jobUrl}
+                      </a>
+                    </td>
+                    <td className="col-company">
+                      <span className="company-name">{item.job.company ?? "-"}</span>
+                    </td>
+                    <td className="col-status">
+                      <StatusPill status={item.status} />
+                    </td>
+                    <td className="col-updated" title={new Date(item.updatedAt).toLocaleString()}>
+                      {new Date(item.updatedAt).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
-    </div>
+    </PageWrapper>
   );
 }

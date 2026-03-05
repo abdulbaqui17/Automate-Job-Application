@@ -7,7 +7,12 @@ import { env } from "./config";
 import { prisma } from "./db";
 import { redis } from "./redis";
 import type { JobEvent } from "@app/shared";
-import { APPLICATION_STREAM, JOB_EVENTS_CHANNEL, AUTOMATION_CHANNEL } from "./stream";
+import {
+  APPLICATION_STREAM,
+  JOB_EVENTS_CHANNEL,
+  AUTOMATION_CHANNEL,
+  DISCOVERY_CHANNEL,
+} from "./stream";
 import multer from "multer";
 import pdfParse from "pdf-parse";
 import path from "path";
@@ -88,6 +93,12 @@ const preferenceSchema = z.object({
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+/** Wrap async route handlers so unhandled rejections become 500 responses */
+const asyncHandler =
+  (fn: (req: express.Request, res: express.Response, next: express.NextFunction) => Promise<any>) =>
+  (req: express.Request, res: express.Response, next: express.NextFunction) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const uploadsDir = path.join(rootDir, "artifacts", "uploads");
@@ -193,7 +204,7 @@ app.post("/resume/parse", async (req, res) => {
   }
 });
 
-app.get("/users/:id", async (req, res) => {
+app.get("/users/:id", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) {
@@ -201,7 +212,7 @@ app.get("/users/:id", async (req, res) => {
     return;
   }
   res.json(user);
-});
+}));
 
 app.patch("/users/:id", async (req, res) => {
   try {
@@ -230,7 +241,7 @@ app.patch("/users/:id", async (req, res) => {
   }
 });
 
-app.get("/resume/latest", async (req, res) => {
+app.get("/resume/latest", asyncHandler(async (req, res) => {
   const userId = req.query.userId;
   if (typeof userId !== "string") {
     res.status(400).json({ error: "userId query param required" });
@@ -251,9 +262,9 @@ app.get("/resume/latest", async (req, res) => {
     textLength: resume.textContent?.length ?? 0,
     createdAt: resume.createdAt,
   });
-});
+}));
 
-app.get("/users", async (req, res) => {
+app.get("/users", asyncHandler(async (req, res) => {
   const email = req.query.email;
   if (typeof email !== "string") {
     res.status(400).json({ error: "email query param required" });
@@ -265,7 +276,7 @@ app.get("/users", async (req, res) => {
     return;
   }
   res.json(user);
-});
+}));
 
 app.post("/users/ai-provider", async (req, res) => {
   try {
@@ -453,15 +464,15 @@ app.post("/jobs/bulk", async (req, res) => {
   }
 });
 
-app.get("/jobs/:id", async (req, res) => {
+app.get("/jobs/:id", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const application = await prisma.application.findUnique({
     where: { id },
   });
   res.json(application ?? null);
-});
+}));
 
-app.get("/applications", async (req, res) => {
+app.get("/applications", asyncHandler(async (req, res) => {
   const userId = req.query.userId;
   if (typeof userId !== "string") {
     res.status(400).json({ error: "userId query param required" });
@@ -474,18 +485,18 @@ app.get("/applications", async (req, res) => {
     take: 50,
   });
   res.json(apps);
-});
+}));
 
-app.get("/applications/:id/cover-letter", async (req, res) => {
+app.get("/applications/:id/cover-letter", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const cover = await prisma.coverLetter.findFirst({
     where: { applicationId: id },
     orderBy: { createdAt: "desc" },
   });
   res.json(cover ?? null);
-});
+}));
 
-app.get("/applications/:id/resume", async (req, res) => {
+app.get("/applications/:id/resume", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const app = await prisma.application.findUnique({
     where: { id },
@@ -506,9 +517,9 @@ app.get("/applications/:id/resume", async (req, res) => {
     console.error(err);
     res.status(500).send("Failed to read resume file");
   }
-});
+}));
 
-app.get("/applications/:id/cover-letter.pdf", async (req, res) => {
+app.get("/applications/:id/cover-letter.pdf", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const cover = await prisma.coverLetter.findFirst({
     where: { applicationId: id },
@@ -522,9 +533,9 @@ app.get("/applications/:id/cover-letter.pdf", async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", "inline; filename=cover-letter.pdf");
   res.send(pdf);
-});
+}));
 
-app.get("/applications/:id/resume.pdf", async (req, res) => {
+app.get("/applications/:id/resume.pdf", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const app = await prisma.application.findUnique({
     where: { id },
@@ -543,16 +554,16 @@ app.get("/applications/:id/resume.pdf", async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
   res.send(pdf);
-});
+}));
 
-app.get("/applications/:id/interview-prep", async (req, res) => {
+app.get("/applications/:id/interview-prep", asyncHandler(async (req, res) => {
   const id = req.params.id;
   const prep = await prisma.interviewPrep.findFirst({
     where: { applicationId: id },
     orderBy: { createdAt: "desc" },
   });
   res.json(prep ?? null);
-});
+}));
 
 app.post("/applications/:id/interview-prep", async (req, res) => {
   const id = req.params.id;
@@ -610,15 +621,15 @@ app.post("/applications/:id/interview-prep", async (req, res) => {
   }
 });
 
-app.get("/preferences/:userId", async (req, res) => {
+app.get("/preferences/:userId", asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const pref = await prisma.searchPreference.findFirst({
     where: { userId },
   });
   res.json(pref ?? null);
-});
+}));
 
-app.get("/discovery/jobs", async (req, res) => {
+app.get("/discovery/jobs", asyncHandler(async (req, res) => {
   const userId = req.query.userId;
   if (typeof userId !== "string") {
     res.status(400).json({ error: "userId query param required" });
@@ -630,9 +641,9 @@ app.get("/discovery/jobs", async (req, res) => {
     take: 25,
   });
   res.json(jobs);
-});
+}));
 
-app.get("/discovery/matches", async (req, res) => {
+app.get("/discovery/matches", asyncHandler(async (req, res) => {
   const userId = req.query.userId;
   if (typeof userId !== "string") {
     res.status(400).json({ error: "userId query param required" });
@@ -645,7 +656,58 @@ app.get("/discovery/matches", async (req, res) => {
     take: 25,
   });
   res.json(matches);
-});
+}));
+
+// -- Job Links: high-match jobs the user can click to apply directly --
+app.get("/discovery/job-links", asyncHandler(async (req, res) => {
+  const userId = req.query.userId;
+  if (typeof userId !== "string") {
+    res.status(400).json({ error: "userId query param required" });
+    return;
+  }
+  const minScore = parseFloat(String(req.query.minScore ?? "0"));
+  const matches = await prisma.jobMatch.findMany({
+    where: {
+      userId,
+      ...(minScore > 0 ? { score: { gte: minScore } } : {}),
+    },
+    include: {
+      job: {
+        select: {
+          id: true,
+          title: true,
+          company: true,
+          location: true,
+          jobUrl: true,
+          applyUrl: true,
+          platform: true,
+          rawDescription: true,
+          postedAt: true,
+          createdAt: true,
+        },
+      },
+    },
+    orderBy: { score: "desc" },
+    take: 50,
+  });
+
+  // Check which jobs already have applications
+  const jobIds = matches.map((m) => m.jobId);
+  const existingApps = await prisma.application.findMany({
+    where: { userId, jobId: { in: jobIds } },
+    select: { jobId: true, status: true },
+  });
+  const appMap = new Map(existingApps.map((a) => [a.jobId, a.status]));
+
+  const result = matches.map((m) => ({
+    matchId: m.id,
+    score: m.score,
+    applicationStatus: appMap.get(m.jobId) ?? null,
+    job: m.job,
+  }));
+
+  res.json(result);
+}));
 
 app.post("/discovery/run", async (req, res) => {
   const userId = req.body?.userId;
@@ -654,11 +716,11 @@ app.post("/discovery/run", async (req, res) => {
     return;
   }
   try {
-    await prisma.searchPreference.updateMany({
-      where: { userId },
-      data: { lastRunAt: new Date(0) },
-    });
-    res.json({ ok: true });
+    const subscribers = await redis.publish(
+      DISCOVERY_CHANNEL,
+      JSON.stringify({ userId })
+    );
+    res.json({ ok: true, dispatched: subscribers > 0 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to trigger discovery" });
@@ -705,7 +767,7 @@ app.post("/automation/start", async (req, res) => {
           locations,
           remote: locations.length === 0,
           autoApply: true,
-          scoreThreshold: 0.25,
+          scoreThreshold: 0.20,
         },
       });
     }
@@ -722,7 +784,7 @@ app.post("/automation/start", async (req, res) => {
   }
 });
 
-app.get("/discovery/batches", async (req, res) => {
+app.get("/discovery/batches", asyncHandler(async (req, res) => {
   const userId = req.query.userId;
   if (typeof userId !== "string") {
     res.status(400).json({ error: "userId query param required" });
@@ -734,7 +796,7 @@ app.get("/discovery/batches", async (req, res) => {
     take: 10,
   });
   res.json(batches);
-});
+}));
 
 app.get("/analytics/summary", async (req, res) => {
   const userId = req.query.userId;
@@ -745,7 +807,7 @@ app.get("/analytics/summary", async (req, res) => {
   try {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourteenDaysAgo = new Date(now.getTime() - 13 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     fourteenDaysAgo.setHours(0, 0, 0, 0);
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
@@ -979,7 +1041,7 @@ app.post("/preferences", async (req, res) => {
         salaryMin: data.salaryMin,
         salaryMax: data.salaryMax,
         autoApply: data.autoApply ?? true,
-        scoreThreshold: data.scoreThreshold ?? 0.25,
+        scoreThreshold: data.scoreThreshold ?? 0.20,
       },
     });
     res.json(created);
@@ -994,15 +1056,29 @@ app.post("/preferences", async (req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({
+  noServer: true,
+  path: "/ws",
+});
 
-wss.on("connection", (socket, req) => {
+server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", "http://localhost");
-  const token = url.searchParams.get("token");
-  if (token !== env.WS_TOKEN) {
-    socket.close(1008, "Unauthorized");
+  if (url.pathname !== "/ws") {
+    socket.destroy();
     return;
   }
+  const token = url.searchParams.get("token");
+  if (token !== env.WS_TOKEN) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit("connection", ws, req);
+  });
+});
+
+wss.on("connection", (socket) => {
   sockets.add(socket);
   socket.on("close", () => sockets.delete(socket));
 });
@@ -1020,6 +1096,33 @@ redisSub.on("message", (_channel, message) => {
 redisSub.subscribe(JOB_EVENTS_CHANNEL).catch((err) => {
   console.error("Failed to subscribe to job events", err);
 });
+
+// Global error handler — catches all unhandled route errors
+app.use(
+  (
+    err: Error,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    console.error("[Unhandled route error]", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+// Graceful shutdown
+const shutdown = () => {
+  console.log("Shutting down gracefully...");
+  server.close();
+  redisSub.disconnect();
+  redis.disconnect();
+  prisma.$disconnect();
+  process.exit(0);
+};
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
 server.listen(env.PORT, () => {
   console.log(`API listening on http://localhost:${env.PORT}`);

@@ -1,7 +1,12 @@
 import { redis } from "./redis";
 import { prisma } from "./db";
-import { APPLICATION_STREAM, WORKER_GROUP, AUTOMATION_CHANNEL } from "./stream";
-import { startDiscovery } from "./discovery";
+import {
+  APPLICATION_STREAM,
+  WORKER_GROUP,
+  AUTOMATION_CHANNEL,
+  DISCOVERY_CHANNEL,
+} from "./stream";
+import { startDiscovery, runDiscoveryNow } from "./discovery";
 import { applyWithBrowser, runFullAutomation } from "./automation";
 import { publishEvent } from "./events";
 
@@ -60,16 +65,29 @@ const run = async () => {
   });
 
   const automationSub = redis.duplicate();
-  await automationSub.subscribe(AUTOMATION_CHANNEL);
-  console.log(`Subscribed to ${AUTOMATION_CHANNEL}`);
-  automationSub.on("message", async (_channel, message) => {
-    console.log(`[automation] Received message: ${message}`);
+  await automationSub.subscribe(AUTOMATION_CHANNEL, DISCOVERY_CHANNEL);
+  console.log(`Subscribed to ${AUTOMATION_CHANNEL} and ${DISCOVERY_CHANNEL}`);
+  automationSub.on("message", async (channel, message) => {
     try {
       const { userId } = JSON.parse(message) as { userId: string };
-      console.log(`[automation] Starting full automation for user: ${userId}`);
-      await runFullAutomation(userId);
-      console.log(`[automation] Finished automation for user: ${userId}`);
+      if (channel === AUTOMATION_CHANNEL) {
+        console.log(`[automation] Received message: ${message}`);
+        console.log(`[automation] Starting full automation for user: ${userId}`);
+        await runFullAutomation(userId);
+        console.log(`[automation] Finished automation for user: ${userId}`);
+        return;
+      }
+
+      if (channel === DISCOVERY_CHANNEL) {
+        console.log(`[discovery] Trigger received for user: ${userId}`);
+        await runDiscoveryNow(userId);
+        console.log(`[discovery] Trigger finished for user: ${userId}`);
+      }
     } catch (err) {
+      if (channel === DISCOVERY_CHANNEL) {
+        console.error("Discovery trigger failed", err);
+        return;
+      }
       console.error("Automation start failed", err);
     }
   });

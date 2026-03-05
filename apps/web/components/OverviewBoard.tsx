@@ -1,10 +1,12 @@
 "use client";
 
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import LogStream from "./LogStream";
 import StatusPill from "./StatusPill";
 import CompanyAvatar from "./CompanyAvatar";
 import ConfettiBurst from "./ConfettiBurst";
+import AnimatedNumber from "./AnimatedNumber";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -26,6 +28,19 @@ type ApplicationRow = {
   };
 };
 
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.08,
+      duration: 0.5,
+      ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number],
+    },
+  }),
+};
+
 export default function OverviewBoard() {
   const [userId, setUserId] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -41,6 +56,35 @@ export default function OverviewBoard() {
       refresh(stored).catch(() => undefined);
     }
   }, []);
+
+  /* Auto-refresh every 10s while automation is running */
+  useEffect(() => {
+    if (!userId) return;
+    const runState = window.localStorage.getItem("applycraft_auto_apply_run_state");
+    let isRunning = false;
+    try {
+      isRunning = runState ? JSON.parse(runState)?.phase === "running" : false;
+    } catch {}
+
+    // Also listen for localStorage changes from StartApplyingPanel
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "applycraft_auto_apply_run_state") {
+        refresh(userId).catch(() => undefined);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    // Poll every 10s if running, every 30s otherwise
+    const interval = setInterval(
+      () => refresh(userId).catch(() => undefined),
+      isRunning ? 10_000 : 30_000
+    );
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [userId]);
 
   const refresh = async (id = userId) => {
     if (!id) return;
@@ -96,87 +140,166 @@ export default function OverviewBoard() {
     );
   }
 
+  const metricItems = [
+    { label: "Jobs queued", value: metrics.queued, accent: "#3dd5a3" },
+    { label: "In progress", value: metrics.processing, accent: "#a78bfa" },
+    { label: "Applied this week", value: metrics.applied, accent: "#06b6d4" },
+    { label: "Manual interventions", value: metrics.manual, accent: "#fbbf24" },
+  ];
+
   return (
     <div className="celebration">
       <ConfettiBurst active={celebrate} />
+
+      {/* Stats Grid */}
       <section className="metrics">
-        <div className="metric" style={{ "--i": 0 } as CSSProperties}>
-          <span>Jobs queued</span>
-          <h4>{metrics.queued}</h4>
-        </div>
-        <div className="metric" style={{ "--i": 1 } as CSSProperties}>
-          <span>In progress</span>
-          <h4>{metrics.processing}</h4>
-        </div>
-        <div className="metric" style={{ "--i": 2 } as CSSProperties}>
-          <span>Applied this week</span>
-          <h4>{metrics.applied}</h4>
-        </div>
-        <div className="metric" style={{ "--i": 3 } as CSSProperties}>
-          <span>Manual interventions</span>
-          <h4>{metrics.manual}</h4>
-        </div>
+        {metricItems.map((item, i) => (
+          <motion.div
+            key={item.label}
+            className="metric"
+            style={{ "--i": i } as CSSProperties}
+            custom={i}
+            variants={cardVariants}
+            initial="hidden"
+            animate="visible"
+          >
+            <span>{item.label}</span>
+            <h4>
+              <AnimatedNumber value={item.value} />
+            </h4>
+            {/* Subtle glow under number */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 8,
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: 60,
+                height: 20,
+                background: `radial-gradient(ellipse, ${item.accent}22, transparent)`,
+                filter: "blur(8px)",
+                pointerEvents: "none",
+              }}
+            />
+          </motion.div>
+        ))}
       </section>
 
+      {/* Main Grid: Activity + Logs */}
       <section className="panel-grid">
-        <div className="panel" style={{ "--i": 4 } as CSSProperties}>
-          <div className="topbar" style={{ marginBottom: "12px" }}>
+        <motion.div
+          className="panel"
+          style={{ "--i": 4 } as CSSProperties}
+          custom={4}
+          variants={cardVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
             <div>
-              <h3 style={{ margin: 0 }}>Recent activity</h3>
-              <p className="helper" style={{ margin: "6px 0 0" }}>
+              <h3
+                style={{
+                  margin: 0,
+                  fontFamily: "var(--font-display), sans-serif",
+                  fontSize: "1.05rem",
+                  fontWeight: 600,
+                }}
+              >
+                Recent activity
+              </h3>
+              <p className="helper" style={{ margin: "4px 0 0", fontSize: "0.8rem" }}>
                 {status}
               </p>
             </div>
-            <button className="button ghost" onClick={() => refresh(userId)}>
+            <button className="button ghost" onClick={() => refresh(userId)} style={{ fontSize: "0.8rem", padding: "6px 14px" }}>
               Refresh
             </button>
           </div>
           {recent.length === 0 ? (
             <p className="helper">No recent applications yet.</p>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Company</th>
-                  <th>Status</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((job) => (
-                  <tr key={job.id}>
-                    <td>
-                      <a href={job.job.jobUrl} target="_blank" rel="noreferrer">
-                        {job.job.title ?? job.job.jobUrl}
-                      </a>
-                    </td>
-                    <td>
-                      <div className="company-cell">
-                        <CompanyAvatar
-                          company={job.job.company}
-                          jobUrl={job.job.jobUrl}
-                        />
-                        <span>{job.job.company ?? "-"}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <StatusPill status={job.status} />
-                    </td>
-                    <td>{new Date(job.updatedAt).toLocaleString()}</td>
+            <div className="table-wrapper">
+              <table className="activity-table">
+                <thead>
+                  <tr>
+                    <th className="col-role">Role</th>
+                    <th className="col-company">Company</th>
+                    <th className="col-status">Status</th>
+                    <th className="col-updated">Updated</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recent.map((job) => (
+                    <tr key={job.id}>
+                      <td className="col-role">
+                        <a
+                          href={job.job.jobUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={job.job.title ?? job.job.jobUrl}
+                          className="role-link"
+                        >
+                          {job.job.title ?? job.job.jobUrl}
+                        </a>
+                      </td>
+                      <td className="col-company">
+                        <div className="company-cell" title={job.job.company ?? ""}>
+                          <CompanyAvatar
+                            company={job.job.company}
+                            jobUrl={job.job.jobUrl}
+                          />
+                          <span className="company-name">{job.job.company ?? "-"}</span>
+                        </div>
+                      </td>
+                      <td className="col-status">
+                        <StatusPill status={job.status} />
+                      </td>
+                      <td className="col-updated" title={new Date(job.updatedAt).toLocaleString()}>
+                        {new Date(job.updatedAt).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
-        <div className="panel" style={{ "--i": 5 } as CSSProperties}>
-          <h3>Log stream</h3>
-          <p className="helper" style={{ marginTop: "4px" }}>
+        </motion.div>
+
+        <motion.div
+          className="panel"
+          style={{ "--i": 5 } as CSSProperties}
+          custom={5}
+          variants={cardVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontFamily: "var(--font-display), sans-serif",
+              fontSize: "1.05rem",
+              fontWeight: 600,
+            }}
+          >
+            Log stream
+          </h3>
+          <p className="helper" style={{ marginTop: 4, fontSize: "0.8rem" }}>
             Live automation events via WebSocket.
           </p>
-          <LogStream />
-        </div>
+          <div style={{ marginTop: 12 }}>
+            <LogStream />
+          </div>
+        </motion.div>
       </section>
     </div>
   );

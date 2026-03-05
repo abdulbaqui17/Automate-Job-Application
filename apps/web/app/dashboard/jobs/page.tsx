@@ -1,11 +1,12 @@
 import Topbar from "../../../components/Topbar";
 import JobsBoard from "../../../components/JobsBoard";
+import PageWrapper from "../../../components/PageWrapper";
 
 export default function JobsPage() {
   return (
-    <div>
+    <PageWrapper>
       <Topbar title="Jobs" />
       <JobsBoard />
-    </div>
+    </PageWrapper>
   );
 }

@@ -1,12 +1,12 @@
 import Topbar from "../../../components/Topbar";
-import DiscoveryFeed from "../../../components/DiscoveryFeed";
+import JobLinksBoard from "../../../components/JobLinksBoard";
 import PageWrapper from "../../../components/PageWrapper";
 
-export default function DiscoveryPage() {
+export default function JobLinksPage() {
   return (
     <PageWrapper>
-      <Topbar title="Discovery" />
-      <DiscoveryFeed />
+      <Topbar title="Job Links" />
+      <JobLinksBoard />
     </PageWrapper>
   );
 }

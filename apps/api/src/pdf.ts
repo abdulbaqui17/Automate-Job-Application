@@ -12,10 +12,9 @@ export const renderTextToPDF = async (title: string, text: string) => {
     align: "left",
   });
 
-  doc.end();
-
   return await new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
+    doc.end();
   });
 };

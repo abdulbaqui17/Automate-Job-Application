@@ -81,29 +81,27 @@ export const scoreJobMatch = async (
   const activeProvider = resolveProvider(providerOverride);
   if (activeProvider === "none") return { score: 0.5, reasoning: "AI not configured" };
 
-  const prompt = `You are a strict AI Job Selection Engine.
+  const prompt = `You are an AI Job Selection Engine.
 
-Your goal is to select only high-quality remote MERN Stack Developer jobs suitable for international candidates.
+Your goal is to evaluate how well this job matches the candidate's skills and experience.
 
-TARGET STACK: React, Node.js, MongoDB, Express, modern JavaScript.
+RULES:
 
-STRICT RULES:
+1. If the candidate prefers remote, check if the job is remote-friendly.
+   - Onsite-only or hybrid with no remote option → lower score.
+   - If no location restriction is stated, assume it could be remote.
 
-1. Job must be fully remote.
-   - If onsite or hybrid → reject (is_match=false, match_score=0).
-   - If location restricted to a specific country and does not allow international candidates → reject.
+2. Match the job title and description against the candidate's actual skills.
+   - More skill overlap = higher score.
+   - Partial overlap is still valuable (score 40-60).
 
-2. Job title must include at least one: MERN, Full Stack Developer, React Developer, Node.js Developer.
+3. Reject only if the job is completely irrelevant (e.g., candidate is a developer but job is for a nurse, marketer, etc.).
 
-3. Job description must include at least two of: React, Node.js, MongoDB, Express, REST API, JavaScript (ES6+).
+4. Prefer: roles that match the candidate's experience level, tech stack overlap, and growth opportunities.
 
-4. Reject immediately if primarily: Java/Spring Boot, Python-only, .NET, PHP, Salesforce, Flutter, Android native, iOS native.
+5. Reject senior roles requiring 6+ years if candidate has <3 years experience.
 
-5. Prefer: Startups, Product companies, International hiring, Early-stage tech teams.
-
-6. Reject senior roles requiring 6+ years experience.
-
-If job is not fully remote → is_match MUST be false. Be strict.
+6. Be generous with scoring — a 40%+ match is worth applying to. Don't be overly strict.
 
 JOB DESCRIPTION:
 ${jobDescription.slice(0, 2000)}
